@@ -23,7 +23,31 @@ export default function App(){
  async function saveApp(e){e.preventDefault();setBusy(true);let payload={...form,applied_at:form.applied_at||null,follow_up_at:form.follow_up_at||null};let r=editing?await db.from('applications').update(payload).eq('id',editing):await db.from('applications').insert({...payload,user_id:session.user.id});setBusy(false);if(r.error)return setMessage(r.error.message);setModal(false);await load()}
  async function removeApp(a){if(!window.confirm('Supprimer cette candidature et ses documents ?'))return;let{error}=await db.from('applications').delete().eq('id',a.id);if(error)setMessage(error.message);else{if(selected===a.id)setSelected('');await load()}}
  async function saveProfile(e){e.preventDefault();setBusy(true);const payload=Object.fromEntries(Object.keys(profileFields).map(k=>[k,profile[k]||'']));let{error}=await db.from('profiles').upsert({...payload,user_id:session.user.id});setBusy(false);setMessage(error?.message||'Profil sauvegardé')}
- async function generate(){if(!selected)return;setBusy(true);setMessage('');let{data,error}=await db.functions.invoke('generate',{body:{applicationId:selected,kind}});setBusy(false);if(error||data?.error)return setMessage(data?.error||error.message);setDocuments(d=>[data.document,...d]);setDraft(data.document.content);setMessage('Document créé. Vérifie son exactitude avant envoi.')}
+ async function generate(){
+ if(!selected)return;
+ setBusy(true);setMessage('');
+ try{
+  const {data,error}=await db.functions.invoke('generate',{body:{applicationId:selected,kind}});
+  if(error){
+   let details='';
+   if(error.context){
+    try{
+     const payload=await error.context.json();
+     details=payload?.error||payload?.message||JSON.stringify(payload);
+    }catch{
+     try{details=await error.context.text()}catch{}
+    }
+   }
+   const status=error.context?.status;
+   throw new Error((status?'HTTP '+status+' : ':'')+(details||error.message));
+  }
+  if(data?.error)throw new Error(data.error);
+  if(!data?.document?.content)throw new Error('Réponse IA vide ou invalide');
+  setDocuments(d=>[data.document,...d]);setDraft(data.document.content);
+  setMessage('Document créé. Vérifie son exactitude avant envoi.');
+ }catch(e){setMessage('Génération impossible : '+(e?.message||String(e)))}
+ finally{setBusy(false)}
+}
  const active=apps.find(a=>a.id===selected);
  const visible=apps.filter(a=>[a.company,a.position,a.country,a.status].join(' ').toLowerCase().includes(search.toLowerCase()));
  if(!db)return <main className="center"><h1>Internship Tracker</h1><p>Configure VITE_SUPABASE_URL et VITE_SUPABASE_ANON_KEY dans les secrets GitHub Actions, puis relance le déploiement. Consulte le README.</p></main>;
